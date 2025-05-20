@@ -133,7 +133,10 @@ export default function StakeToken() {
   // — Formatting helper —
   const fmt = (wei?: ethers.BigNumber) =>
     wei ? ethers.utils.formatUnits(wei, DECIMALS) : '0.0';
-  const staked = parseFloat(fmt(rawStaked)).toFixed(4);
+  // Aqui forçamos rawStaked a BigNumber ou undefined para não quebrar o build
+  const staked = parseFloat(
+    fmt((rawStaked as ethers.BigNumber) || undefined)
+  ).toFixed(4);
 
   // — Unified generic error message —
   const showGenericError = () => {
@@ -198,7 +201,9 @@ export default function StakeToken() {
         Disconnect
       </button>
 
-      <p className="text-lg">Staked Balance: <strong>{staked}</strong> ENA</p>
+      <p className="text-lg">
+        Staked Balance: <strong>{staked}</strong> ENA
+      </p>
 
       {/* Stake Section */}
       <div className="space-y-3">
