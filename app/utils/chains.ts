@@ -1,4 +1,5 @@
-import { Chain } from 'wagmi';
+// app/utils/chains.ts
+import type { Chain } from 'wagmi'
 
 export const soneium: Chain = {
   id: 1868,
@@ -13,6 +14,9 @@ export const soneium: Chain = {
     default: {
       http: ['https://rpc.soneium.org'],
     },
+    public: {                  // <-- adicionado
+      http: ['https://rpc.soneium.org'],
+    },
   },
   blockExplorers: {
     default: {
@@ -20,4 +24,4 @@ export const soneium: Chain = {
       url: 'https://explorer.soneium.org',
     },
   },
-};
+}
