@@ -1,5 +1,6 @@
 'use client';
-import { useState, useEffect } from 'react';
+
+import { useState, useEffect, useMemo } from 'react';
 import {
   useAccount,
   useConnect,
@@ -12,7 +13,7 @@ import { InjectedConnector } from 'wagmi/connectors/injected';
 import { ethers } from 'ethers';
 import stakingAbi from '../contracts/tokenStaking.json';
 
-// Minimal ERC20 ABI so we don’t need a separate token.json:
+// ABI mínimo do ERC-20 para approve/allowance
 const erc20Abi = [
   'function approve(address spender, uint256 amount) external returns (bool)',
   'function allowance(address owner, address spender) external view returns (uint256)',
@@ -23,13 +24,21 @@ const DECIMALS = 18;
 const SONEIUM_CHAIN_ID = 1868;
 
 export default function StakeTokenClient() {
+  // — Hooks no topo —
   const { address, isConnected } = useAccount();
   const { connect } = useConnect({ connector: new InjectedConnector() });
   const { disconnect } = useDisconnect();
   const { chain } = useNetwork();
   const { data: signer } = useSigner();
 
-  // read staked
+  // Client guard
+  const [ready, setReady] = useState(false);
+  // Estado de aprovação
+  const [approved, setApproved] = useState(false);
+  // Valor a stakear
+  const [amt, setAmt] = useState('');
+
+  // Leitura on-chain do staked balance
   const { data: rawStaked } = useContractRead({
     address: CONTRACT_ADDRESS,
     abi: stakingAbi,
@@ -39,26 +48,64 @@ export default function StakeTokenClient() {
     enabled: Boolean(address),
   });
 
-  // client guard
-  const [ready, setReady] = useState(false);
+  // Hydration guard
   useEffect(() => {
     setReady(true);
   }, []);
+
+  // Memoiza instâncias de contrato para hooks estáveis
+  const tokenContract = useMemo(
+    () => (signer ? new ethers.Contract(CONTRACT_ADDRESS, erc20Abi, signer) : null),
+    [signer]
+  );
+  const stakingContract = useMemo(
+    () => (signer ? new ethers.Contract(CONTRACT_ADDRESS, stakingAbi, signer) : null),
+    [signer]
+  );
+
+  // Formata o staked balance
+  const fmt = (wei?: ethers.BigNumber) =>
+    wei ? ethers.utils.formatUnits(wei, DECIMALS) : '0.0';
+  const staked = parseFloat(fmt(rawStaked as ethers.BigNumber)).toFixed(4);
+
+  // Verifica allowance para aprovação
+  useEffect(() => {
+    const checkAllowance = async () => {
+      if (!tokenContract || !address) return;
+      const allowance = await tokenContract.allowance(address, CONTRACT_ADDRESS);
+      setApproved(allowance.gt(0));
+    };
+    checkAllowance();
+  }, [tokenContract, address]);
+
+  // Reload on chain change
+  useEffect(() => {
+    if (!(window as any).ethereum) return;
+    const handler = (hex: string) => {
+      if (parseInt(hex, 16) !== SONEIUM_CHAIN_ID) {
+        window.location.reload();
+      }
+    };
+    (window as any).ethereum.on('chainChanged', handler);
+    return () => {
+      (window as any).ethereum.removeListener('chainChanged', handler);
+    };
+  }, []);
+
+  // — Retornos antecipados após hooks —
   if (!ready) return null;
 
-  // 1) connect
   if (!isConnected) {
     return (
       <button
         onClick={() => connect()}
-        className="w-full bg-green-600 text-white py-3 rounded-lg"
+        className="w-full bg-green-600 text-white py-3 rounded-lg shadow-md hover:bg-green-700 transition"
       >
         Connect Wallet
       </button>
     );
   }
 
-  // 2) network
   if (chain?.id !== SONEIUM_CHAIN_ID) {
     return (
       <>
@@ -72,7 +119,7 @@ export default function StakeTokenClient() {
               params: [{ chainId: '0x74C' }],
             });
           }}
-          className="w-full bg-blue-600 text-white py-2 rounded"
+          className="w-full bg-blue-600 text-white py-2 rounded-lg shadow-md hover:bg-blue-700 transition"
         >
           Switch to Soneium
         </button>
@@ -80,34 +127,7 @@ export default function StakeTokenClient() {
     );
   }
 
-  // contract instances
-  const tokenContract = signer
-    ? new ethers.Contract(CONTRACT_ADDRESS, erc20Abi, signer)
-    : null;
-  const stakingContract = signer
-    ? new ethers.Contract(CONTRACT_ADDRESS, stakingAbi, signer)
-    : null;
-
-  // format staked
-  const fmt = (wei?: ethers.BigNumber) =>
-    wei ? ethers.utils.formatUnits(wei, DECIMALS) : '0.0';
-  const staked = parseFloat(fmt(rawStaked as ethers.BigNumber)).toFixed(4);
-
-  // approval state
-  const [approved, setApproved] = useState(false);
-  useEffect(() => {
-    async function check() {
-      if (!tokenContract || !address) return;
-      const allowance = await tokenContract.allowance(
-        address,
-        CONTRACT_ADDRESS
-      );
-      setApproved(allowance.gt(0));
-    }
-    check();
-  }, [tokenContract, address]);
-
-  // handlers
+  // — Handlers —
   const handleApprove = async () => {
     if (!tokenContract) return;
     const tx = await tokenContract.approve(
@@ -117,7 +137,7 @@ export default function StakeTokenClient() {
     await tx.wait();
     setApproved(true);
   };
-  const [amt, setAmt] = useState('');
+
   const handleStake = async () => {
     if (!stakingContract || !amt) return;
     const tx = await stakingContract.stake(
@@ -128,6 +148,7 @@ export default function StakeTokenClient() {
     alert('Staked!');
   };
 
+  // — UI —
   return (
     <div className="p-6 bg-white rounded-xl shadow-lg">
       <h2 className="text-2xl font-bold mb-4">ENA Token Staking</h2>
@@ -138,7 +159,7 @@ export default function StakeTokenClient() {
         <>
           <button
             onClick={handleApprove}
-            className="w-full bg-purple-600 text-white py-3 rounded-lg mb-2"
+            className="w-full bg-purple-600 text-white py-3 rounded-lg shadow-md hover:bg-purple-700 transition mb-2"
           >
             Approve ENA
           </button>
@@ -157,7 +178,7 @@ export default function StakeTokenClient() {
           />
           <button
             onClick={handleStake}
-            className="w-full bg-green-600 text-white py-3 rounded-lg"
+            className="w-full bg-green-600 text-white py-3 rounded-lg shadow-md hover:bg-green-700 transition"
           >
             Stake ENA
           </button>
