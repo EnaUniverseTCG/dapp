@@ -1,16 +1,55 @@
 // app/page.tsx
 'use client';
 
+import dynamic from 'next/dynamic';
 import { useAccount, useConnect } from 'wagmi';
 import { InjectedConnector } from 'wagmi/connectors/injected';
-import StakeNFT from './StakeNFT';
-import StakeToken from './StakeToken';
+
+// Carrega só no client para evitar problemas de SSR
+const StakeNFT = dynamic(() => import('./StakeNFT'), { ssr: false });
+const StakeToken = dynamic(() => import('./StakeToken'), { ssr: false });
 
 export default function Home() {
   const { isConnected } = useAccount();
   const { connect } = useConnect({
     connector: new InjectedConnector(),
   });
+
+  // Troca para Soneium Mainnet, adicionando se necessário
+  const switchToSoneium = async () => {
+    if (typeof window === 'undefined' || !(window as any).ethereum) {
+      alert('MetaMask não encontrada');
+      return;
+    }
+    try {
+      await (window as any).ethereum.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: '0x74C' }], // 1868
+      });
+    } catch (err: any) {
+      if (err.code === 4902) {
+        // cadeia não adicionada ainda
+        await (window as any).ethereum.request({
+          method: 'wallet_addEthereumChain',
+          params: [{
+            chainId: '0x74C',
+            chainName: 'Soneium Mainnet',
+            nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+            rpcUrls: ['https://rpc.soneium.org'],
+            blockExplorerUrls: ['https://explorer.soneium.org'],
+          }],
+        });
+      } else {
+        alert('Erro ao trocar de rede: ' + err.message);
+      }
+    }
+  };
+
+  // Primeiro muda de rede, depois abre o modal de conexão
+  const handleConnectClick = async () => {
+    await switchToSoneium();
+    connect();
+  };
 
   return (
     <main className="min-h-screen bg-black text-white flex flex-col items-center py-16 space-y-12">
@@ -36,14 +75,14 @@ export default function Home() {
       {/* Botão gamificado: só enquanto não conectado */}
       {!isConnected && (
         <button
-          onClick={() => connect()}
+          onClick={handleConnectClick}
           className="btn-game"
         >
           Connect Wallet
         </button>
       )}
 
-      {/* Se as duas seções só devem aparecer quando conectado */}
+      {/* Seções de staking só aparecem quando conectado */}
       {isConnected && (
         <section className="w-full max-w-3xl space-y-12">
           <div className="section-nft">
